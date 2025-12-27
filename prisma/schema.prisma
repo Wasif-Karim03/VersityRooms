@@ -1,0 +1,149 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model - represents university members (students, staff, faculty, admins)
+model User {
+  id         String   @id @default(cuid())
+  name       String
+  email      String   @unique
+  role       UserRole @default(STUDENT)
+  department String?
+  createdAt  DateTime @default(now())
+
+  bookingRequests BookingRequest[]
+  bookings        Booking[]
+  auditLogs       AuditLog[] @relation("ActorAuditLogs")
+  notifications   Notification[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  STUDENT
+  FACULTY
+  ADMIN
+}
+
+// Room model - represents bookable rooms
+model Room {
+  id              String    @id @default(cuid())
+  name            String
+  building        String
+  capacity        Int
+  equipment       Json      // Array of equipment items: ["projector", "whiteboard", etc.]
+  images          Json      // Array of image URLs: ["url1", "url2", etc.]
+  isActive        Boolean   @default(true)
+  isLocked        Boolean   @default(false)
+  restrictedRoles Json?     // Array of roles that can book: ["FACULTY"] or null for all
+  createdAt       DateTime  @default(now())
+
+  bookingRequests BookingRequest[]
+  bookings        Booking[]
+
+  @@map("rooms")
+}
+
+// BookingRequest model - represents room reservation requests
+model BookingRequest {
+  id        String          @id @default(cuid())
+  roomId    String
+  userId    String
+  startAt   DateTime
+  endAt     DateTime
+  purpose   String
+  status    BookingStatus   @default(PENDING)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  booking Booking? // If approved, links to the created booking
+
+  @@index([status])
+  @@index([userId])
+  @@index([roomId, startAt, endAt])
+  @@map("booking_requests")
+}
+
+enum BookingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+// Booking model - represents confirmed room reservations
+model Booking {
+  id                  String   @id @default(cuid())
+  roomId              String
+  userId              String
+  startAt             DateTime
+  endAt               DateTime
+  purpose             String
+  isOverride          Boolean  @default(false) // Admin override for conflicts
+  createdFromRequestId String?  @unique // Links back to the BookingRequest if created from one
+  createdAt           DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  request BookingRequest? @relation(fields: [createdFromRequestId], references: [id], onDelete: SetNull)
+
+  @@index([roomId, startAt, endAt]) // For availability queries
+  @@index([userId])
+  @@index([startAt, endAt]) // For time range queries
+  @@map("bookings")
+}
+
+// AuditLog model - tracks all system actions for compliance and debugging
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  actionType  String   // e.g., "BOOKING_CREATED", "BOOKING_APPROVED", "ROOM_LOCKED"
+  targetType  String   // e.g., "BookingRequest", "Room", "User"
+  targetId    String?  // ID of the target entity
+  reason      String?  // Optional reason/note for the action
+  createdAt   DateTime @default(now())
+
+  actor User @relation("ActorAuditLogs", fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([actorUserId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// Notification model - stores user notifications
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  metadata  Json?            // Additional data (e.g., requestId, roomId)
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  REQUEST_SUBMITTED
+  REQUEST_APPROVED
+  REQUEST_REJECTED
+  REQUEST_MODIFIED
+  REQUEST_CANCELLED
+  OVERRIDE_CREATED
+}

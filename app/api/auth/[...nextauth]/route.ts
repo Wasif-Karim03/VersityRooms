@@ -1,0 +1,13 @@
+/**
+ * NextAuth API Route Handler
+ * 
+ * This route handles all NextAuth.js authentication requests.
+ */
+
+import NextAuth from "next-auth"
+import { authOptions } from "@/src/lib/auth/config"
+
+const handler = NextAuth(authOptions)
+
+export { handler as GET, handler as POST }
+
