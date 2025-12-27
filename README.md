@@ -1,4 +1,12 @@
-# University Room Booking System
+# VersityRooms - University Room Booking System
+
+A modern room booking system for Ohio Wesleyan University built with Next.js 14, TypeScript, and Prisma.
+
+## 🚀 Live Demo
+
+[View Live Application](https://versityrooms.vercel.app) (Coming soon after deployment)
+
+## 📋 Features
 
 A production-ready room booking web application for universities built with Next.js 14, TypeScript, Tailwind CSS, and Prisma.
 
