@@ -1,0 +1,140 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model - represents university members (students, staff, faculty, admins)
+model User {
+  id         String   @id @default(cuid())
+  name       String
+  email      String   @unique
+  role       String   @default("STUDENT") // STUDENT, FACULTY, ADMIN
+  department String?
+  createdAt  DateTime @default(now())
+
+  bookingRequests BookingRequest[]
+  bookings        Booking[]
+  auditLogs       AuditLog[] @relation("ActorAuditLogs")
+  notifications   Notification[]
+
+  @@map("users")
+}
+
+// Room model - represents bookable rooms
+model Room {
+  id              String    @id @default(cuid())
+  name            String
+  building        String
+  capacity        Int
+  equipment       String    @default("[]") // JSON string: ["projector", "whiteboard", etc.]
+  images          String    @default("[]") // JSON string: ["url1", "url2", etc.]
+  isActive        Boolean   @default(true)
+  isLocked        Boolean   @default(false)
+  restrictedRoles String?   // JSON string: ["FACULTY"] or null for all
+  createdAt       DateTime  @default(now())
+
+  bookingRequests BookingRequest[]
+  bookings        Booking[]
+
+  // Critical indexes for performance (500+ users)
+  @@index([building, isActive])         // Building filter with active status
+  @@index([isActive, capacity])         // Active rooms by capacity
+  @@index([isActive])                   // Active rooms only (common filter)
+  @@map("rooms")
+}
+
+// BookingRequest model - represents room reservation requests
+model BookingRequest {
+  id        String          @id @default(cuid())
+  roomId    String
+  userId    String
+  startAt   DateTime
+  endAt     DateTime
+  purpose   String
+  status    String          @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  booking Booking? // If approved, links to the created booking
+
+  @@index([status])
+  @@index([status, createdAt])          // Pending requests ordered by time (admin dashboard)
+  @@index([userId])
+  @@index([userId, status])             // User requests by status
+  @@index([roomId, startAt, endAt])
+  @@index([roomId, status, startAt])    // Room-specific requests with status
+  @@map("booking_requests")
+}
+
+
+// Booking model - represents confirmed room reservations
+model Booking {
+  id                  String   @id @default(cuid())
+  roomId              String
+  userId              String
+  startAt             DateTime
+  endAt               DateTime
+  purpose             String
+  isOverride          Boolean  @default(false) // Admin override for conflicts
+  createdFromRequestId String?  @unique // Links back to the BookingRequest if created from one
+  createdAt           DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  request BookingRequest? @relation(fields: [createdFromRequestId], references: [id], onDelete: SetNull)
+
+  @@index([roomId, startAt, endAt])     // For availability queries
+  @@index([roomId, startAt])            // Room availability (composite index)
+  @@index([userId, startAt])            // User bookings ordered by time
+  @@index([startAt, endAt])             // Time range queries
+  @@index([createdAt])                  // Recent bookings
+  @@map("bookings")
+}
+
+// AuditLog model - tracks all system actions for compliance and debugging
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  actionType  String   // e.g., "BOOKING_CREATED", "BOOKING_APPROVED", "ROOM_LOCKED"
+  targetType  String   // e.g., "BookingRequest", "Room", "User"
+  targetId    String?  // ID of the target entity
+  reason      String?  // Optional reason/note for the action
+  createdAt   DateTime @default(now())
+
+  actor User @relation("ActorAuditLogs", fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([actorUserId])
+  @@index([actorUserId, createdAt])     // User actions ordered by time
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@index([actionType, createdAt])      // Action type queries
+  @@map("audit_logs")
+}
+
+// Notification model - stores user notifications
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      String          // REQUEST_SUBMITTED, REQUEST_APPROVED, etc.
+  title     String
+  message   String
+  metadata  String?         // JSON string: Additional data (e.g., requestId, roomId)
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
